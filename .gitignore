@@ -1,0 +1,29 @@
+# Dependencias
+node_modules/
+
+# Salida de compilación
+dist/
+*.tsbuildinfo
+
+# Variables de entorno y secretos (nunca versionar)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Cobertura de tests
+coverage/
+
+# Configuración local de Claude Code
+.claude/settings.local.json
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

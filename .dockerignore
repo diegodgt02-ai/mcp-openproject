@@ -1,0 +1,34 @@
+# Control de versiones
+.git
+.gitignore
+
+# Dependencias locales (la imagen las instala con npm ci)
+node_modules/
+
+# Salida de compilación local (la imagen compila dentro del builder)
+dist/
+*.tsbuildinfo
+
+# Secretos: se inyectan en runtime con --env-file o -e, nunca dentro de la imagen
+.env
+.env.*
+
+# Logs y cobertura
+logs/
+*.log
+coverage/
+
+# Documentación y configuración de desarrollo
+README.md
+CLAUDE.md
+.claude/
+.vscode/
+.idea/
+
+# Propias de Docker
+Dockerfile
+.dockerignore
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

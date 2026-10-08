@@ -1,0 +1,51 @@
+# Variables tomadas de .env (ver .env.example). Compose las interpola automáticamente.
+services:
+  openproject:
+    image: openproject/openproject:17
+    container_name: openproject_spb
+    environment:
+      SECRET_KEY_BASE: "${OPENPROJECT_SECRET_KEY_BASE:?Definir OPENPROJECT_SECRET_KEY_BASE en .env}"
+      OPENPROJECT_SECRET_KEY_BASE: "${OPENPROJECT_SECRET_KEY_BASE:?Definir OPENPROJECT_SECRET_KEY_BASE en .env}"
+      OPENPROJECT_DISABLE__SECRET_KEY_BASE__CHECK: "true"
+      OPENPROJECT_HOST__NAME: "${OPENPROJECT_HOST__NAME:-localhost:8080}"
+      OPENPROJECT_HTTPS: "false"
+      OPENPROJECT_WORKER_PROCESSES: "1"
+      OPENPROJECT_SSRF_PROTECTION_IP_ALLOWLIST: "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
+    ports:
+      - "8080:80"
+    volumes:
+      - openproject_pgdata:/var/openproject/pgdata
+      - openproject_assets:/var/openproject/assets
+    networks:
+      - spb-network
+    restart: always
+
+  openproject-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openproject-mcp
+    environment:
+      OPENPROJECT_URL: "http://openproject_spb:80"
+      OPENPROJECT_API_KEY: "${OPENPROJECT_API_KEY:?Definir OPENPROJECT_API_KEY en .env}"
+      # Mismo host que OPENPROJECT_HOST__NAME de OpenProject, para que acepte las peticiones internas
+      OPENPROJECT_HOST_HEADER: "${OPENPROJECT_HOST__NAME:-localhost:8080}"
+      # URL que ve el usuario en el navegador (enlaces de respuesta)
+      OPENPROJECT_PUBLIC_URL: "${OPENPROJECT_PUBLIC_URL:-http://localhost:8080}"
+      MCP_TRANSPORT: "sse"
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - openproject
+    networks:
+      - spb-network
+    restart: always
+
+networks:
+  spb-network:
+    driver: bridge
+
+volumes:
+  openproject_pgdata:
+  openproject_assets:
