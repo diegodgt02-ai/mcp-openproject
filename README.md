@@ -153,6 +153,145 @@ Scripts auxiliares en `src/` (se compilan junto con el resto, no forman parte de
 
 No hay suite de tests ni linter configurados.
 
+## Puesta en marcha completa (primera instalación)
+
+Procedimiento para una instalación nueva con `docker compose`. Los volúmenes nuevos arrancan vacíos: OpenProject no trae proyecto, token ni campos personalizados.
+
+### 1. Preparar `.env`
+
+```bash
+cp .env.example .env
+```
+
+Completar `OPENPROJECT_SECRET_KEY_BASE` (`openssl rand -hex 64`). `OPENPROJECT_API_KEY` se completa en el paso 4.
+
+### 2. Levantar el stack
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+OpenProject tarda varios minutos en el primer arranque (crea la base de datos). Esperar hasta que responda:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: localhost:8080' http://127.0.0.1:8080/api/v3
+```
+
+Debe devolver `401` (sin credenciales). Si devuelve `000`, todavía está arrancando. Si devuelve `400`, falta la cabecera `Host`.
+
+### 3. Cambiar la contraseña de admin
+
+- Entrar a `http://localhost:8080`.
+- Usuario `admin`, contraseña `admin` (valor por defecto de una instalación nueva).
+- OpenProject obliga a cambiarla en el primer login. Hacerlo en la UI; no guardar la contraseña en el repo.
+
+### 4. Generar el token de API
+
+- *Mi cuenta → Tokens de acceso → API → Generar*.
+- Copiar el token (solo se muestra una vez) y pegarlo en `.env`:
+
+```env
+OPENPROJECT_API_KEY=<token>
+```
+
+- Reiniciar el MCP para que tome la variable:
+
+```bash
+docker compose up -d --force-recreate openproject-mcp
+```
+
+Verificar el token (debe devolver el usuario `admin`):
+
+```bash
+KEY=$(grep '^OPENPROJECT_API_KEY=' .env | cut -d= -f2-)
+curl -s -u "apikey:$KEY" -H 'Host: localhost:8080' http://127.0.0.1:8080/api/v3/users/me
+```
+
+### 5. Crear el proyecto
+
+- Crear el proyecto `sirap-main` en la UI (o el identificador que se use como `projectKey`). Sin proyecto, las llamadas fallan.
+- Verificar:
+
+```bash
+curl -s -u "apikey:$KEY" -H 'Host: localhost:8080' http://127.0.0.1:8080/api/v3/projects/sirap-main
+```
+
+### 6. Configurar el tipo *User story*
+
+El tipo de HU depende de la instancia. Listar los tipos disponibles:
+
+```bash
+curl -s -u "apikey:$KEY" -H 'Host: localhost:8080' http://127.0.0.1:8080/api/v3/types
+```
+
+En una instalación nueva, *User story* tiene ID `6`. Poner ese valor en `.env`:
+
+```env
+OPENPROJECT_TYPE_ID=6
+```
+
+Si el ID no existe, OpenProject crea el work package con otro tipo (por ejemplo `Task`) y no devuelve error. Verificar siempre el tipo del work package creado.
+
+### 7. Crear los campos personalizados
+
+El MCP escribe en `customField1`–`customField5`. Una instalación nueva no tiene estos campos; sin ellos, el Gherkin y los demás datos se descartan en silencio.
+
+Crear en la UI, en *Administración → Campos personalizados*, y activarlos para el tipo *User story* en `sirap-main`:
+
+| Campo | Formato | Uso |
+|---|---|---|
+| `customField1` | Lista | Tipo de HU (`tipoHU`) |
+| `customField2` | Texto largo (Markdown) | Gherkin |
+| `customField3` | Texto | Fuente (`fuente`) |
+| `customField4` | Lista | Estado HITL (`estadoHITL`) |
+| `customField5` | Texto largo (Markdown) | Justificación IA |
+
+Para listas (`tipoHU`, `estadoHITL`), cargar las opciones que se usarán (por ejemplo `HU-IA`, `Borrador IA`).
+
+Verificar que los campos existen para el tipo: la respuesta del formulario debe incluir `customField1`–`customField5`:
+
+```bash
+curl -s -X POST -u "apikey:$KEY" -H 'Host: localhost:8080' -H 'Content-Type: application/json' \
+  -d '{"_links":{"type":{"href":"/api/v3/types/6"}}}' \
+  http://127.0.0.1:8080/api/v3/projects/sirap-main/work_packages/form | python3 -c 'import sys,json; s=json.load(sys.stdin)["_embedded"]["schema"]; print([k for k in s if k.startswith("customField")])'
+```
+
+Si la lista sale vacía, los campos no están activos para ese tipo y proyecto.
+
+### 8. Probar el MCP
+
+Health:
+
+```bash
+curl -s -w ' HTTP=%{http_code}\n' http://127.0.0.1:3000/health
+```
+
+HU de prueba (crea un work package real; borrarlo después desde la UI):
+
+```bash
+curl -s -X POST http://127.0.0.1:3000/messages -H 'Content-Type: application/json' -d '{
+  "jsonrpc":"2.0","id":1,"method":"tools/call",
+  "params":{"name":"crear_historia_usuario","arguments":{
+    "projectKey":"sirap-main",
+    "subject":"PRUEBA MCP - borrar",
+    "gherkin":"Feature: Prueba\n  Scenario: Creacion\n    Given el MCP esta activo"
+  }}}'
+```
+
+Verificar el resultado en OpenProject: que el tipo sea *User story* y que `customField2` tenga el Gherkin.
+
+```bash
+curl -s -u "apikey:$KEY" -H 'Host: localhost:8080' http://127.0.0.1:8080/api/v3/work_packages/<id> \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["_links"]["type"]["title"], bool((d.get("customField2") or {}).get("raw")))'
+```
+
+### Problemas conocidos de esta instalación
+
+- `OPENPROJECT_TYPE_ID` por defecto es `39`, que no existe en una instalación nueva. Usar `6` o el ID real de *User story*.
+- Los campos `customField1`–`customField5` no están en el código como nombres: son IDs fijos. Si cambian en la instancia, el mapeo falla en silencio.
+- Un volumen nuevo (`docker compose down -v` o volúmenes creados de cero) equivale a una instalación nueva: hay que repetir los pasos 3 a 7.
+
 ## Despliegue con Docker Compose (OpenProject + MCP)
 
 `docker-compose.yml` levanta OpenProject 17 y el MCP en la red `spb-network`. Las credenciales salen de `.env`:
